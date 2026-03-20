@@ -2,57 +2,36 @@
 
 # OpenHRV
 
-A desktop application for heart rate variability (HRV) biofeedback training with ECG chest straps.
-
-## Compatible sensors
-- Polar H7, H9, H10
-- Decathlon Dual HR (model ZT26D)
+A desktop application for heart rate variability (HRV) biofeedback training with
+Polar chest straps (H7, H9, H10).
 
 ## Installation
 
-It is highly recommended to install the project in a virtual Python environment,
-e.g., using [conda](https://docs.python.org/3/library/venv.html) or
+### Windows
+Download [OpenHRV.exe](https://github.com/JanCBrammer/OpenHRV/releases/latest)
+and run it, no installation required.
+
+### Linux, MacOS, Windows
+
+Clone the repository and run [OpenHRV.py](https://github.com/JanCBrammer/OpenHRV/blob/main/openhrv/OpenHRV.py)
+in a Python environment that contains the following dependencies:
+
+* Python >= 3.10
+* PySide6
+* pyqtgraph
+* numpy
+
+It is highly recommended to install these dependencies in a virtual environment,
+e.g., using [conda](https://docs.python.org/3/library/venv.html) or 
 [venv](https://docs.python.org/3/library/venv.html).
-The required Python version is specified in
-[pyproject.toml](https://github.com/JanCBrammer/OpenHRV/blob/main/pyproject.toml).
-
-In your Python environment, clone the repository, and subsequently run
-
-```
-pip install .
-```
-
-in the root of the repository. Alternatively, you can skip cloning by running
-
-```
-pip install git+https://github.com/JanCBrammer/OpenHRV.git
-```
-
-You can now start the application with
-
-```
-python -m openhrv.app
-```
-
-or alternatively, with the shortcut
-
-```
-openhrv
-```
-I tested `OpenHRV` on Ubuntu 24.04. It _should_ run on Windows and macOS as well, however, I haven't confirmed that myself.
-If you have problems running `OpenHRV` have a look at [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Ubuntu executable
-
-On Ubuntu, download and run [OpenHRV.bin](https://github.com/JanCBrammer/OpenHRV/releases/latest), no installation required.
 
 ## User Guide
 
 ### Connect your ECG sensor
-First make sure the sensor is paired with your computer
+First make sure your Polar sensor (H7, H9, or H10) is paired with your computer
 (i.e., find and pair the sensor in your computer's Bluetooth settings).
 Then search the sensor in **OpenHRV** by clicking `Scan`. The addresses of all
-paired sensors show up in the drop-down menu. Select your sensor from the
+paired Polar sensors show up in the drop-down menu. Select your sensor from the
 drop-down menu and click `Connect` in order to establish a connection. You can
 disconnect the sensor anytime by clicking `Disconnect`. Disconnecting is useful
 if you want to connect to another sensor, or if an error occurs with the connection.

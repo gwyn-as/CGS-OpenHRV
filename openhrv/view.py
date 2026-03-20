@@ -1,258 +1,135 @@
+import pyqtgraph as pg
+from utils import valid_address, valid_path
 from datetime import datetime
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QPushButton,
-    QHBoxLayout,
-    QVBoxLayout,
-    QWidget,
-    QLabel,
-    QComboBox,
-    QSlider,
-    QGroupBox,
-    QFormLayout,
-    QCheckBox,
-    QFileDialog,
-    QProgressBar,
-    QGridLayout,
-    QSizePolicy,
-)
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QTimer, QMargins, QSize
-from PySide6.QtGui import QIcon, QLinearGradient, QBrush, QGradient, QColor
-from PySide6.QtCharts import QChartView, QChart, QSplineSeries, QValueAxis, QAreaSeries
-from PySide6.QtBluetooth import QBluetoothDeviceInfo
-from typing import Iterable
-from openhrv.utils import valid_address, valid_path, get_sensor_address, NamedSignal
-from openhrv.sensor import SensorScanner, SensorClient
-from openhrv.logger import Logger
-from openhrv.pacer import Pacer
-from openhrv.model import Model
-from openhrv.config import (
-    breathing_rate_to_tick,
-    HRV_HISTORY_DURATION,
-    IBI_HISTORY_DURATION,
-    MAX_BREATHING_RATE,
-    MIN_BREATHING_RATE,
-    MIN_HRV_TARGET,
-    MAX_HRV_TARGET,
-    MIN_PLOT_IBI,
-    MAX_PLOT_IBI,
-)
-from openhrv import __version__ as version, resources  # noqa
+from PySide6.QtWidgets import (QMainWindow, QPushButton, QHBoxLayout,
+                               QVBoxLayout, QWidget, QLabel, QComboBox,
+                               QSlider, QGroupBox, QFormLayout, QCheckBox,
+                               QFileDialog, QProgressBar, QGridLayout)
+from PySide6.QtCore import Qt, QThread, Signal, QObject
+from PySide6.QtGui import QIcon, QLinearGradient, QBrush, QGradient
+from sensor import SensorScanner, SensorClient
+from logger import Logger
+import datetime
 
-BLUE = QColor(135, 206, 250)
-WHITE = QColor(255, 255, 255)
-GREEN = QColor(0, 255, 0)
-YELLOW = QColor(255, 255, 0)
-RED = QColor(255, 0, 0)
-
-
-class PacerWidget(QChartView):
-    def __init__(
-        self, x_values: Iterable[float], y_values: Iterable[float], color: QColor = BLUE
-    ):
-        super().__init__()
-
-        self.setSizePolicy(
-            QSizePolicy(
-                QSizePolicy.Fixed,  # enforce self.sizeHint by fixing horizontal (width) policy
-                QSizePolicy.Preferred,
-            )
-        )
-
-        self.plot = QChart()
-        self.plot.legend().setVisible(False)
-        self.plot.setBackgroundRoundness(0)
-        self.plot.setMargins(QMargins(0, 0, 0, 0))
-
-        self.disc_circumference_coord = QSplineSeries()
-        self._instantiate_series(x_values, y_values)
-        self.disk = QAreaSeries(self.disc_circumference_coord)
-        self.disk.setColor(color)
-        self.plot.addSeries(self.disk)
-
-        self.x_axis = QValueAxis()
-        self.x_axis.setRange(-1, 1)
-        self.x_axis.setVisible(False)
-        self.plot.addAxis(self.x_axis, Qt.AlignBottom)
-        self.disk.attachAxis(self.x_axis)
-
-        self.y_axis = QValueAxis()
-        self.y_axis.setRange(-1, 1)
-        self.y_axis.setVisible(False)
-        self.plot.addAxis(self.y_axis, Qt.AlignLeft)
-        self.disk.attachAxis(self.y_axis)
-
-        self.setChart(self.plot)
-
-    def _instantiate_series(self, x_values: Iterable[float], y_values: Iterable[float]):
-        for x, y in zip(x_values, y_values):
-            self.disc_circumference_coord.append(x, y)
-
-    def update_series(self, x_values: Iterable[float], y_values: Iterable[float]):
-        for i, (x, y) in enumerate(zip(x_values, y_values)):
-            self.disc_circumference_coord.replace(i, x, y)
-
-    def sizeHint(self):
-        height = self.size().height()
-        return QSize(height, height)  # force square aspect ratio
-
-    def resizeEvent(self, event):
-        if self.size().width() != self.size().height():
-            self.updateGeometry()  # adjusts geometry based on sizeHint
-        return super().resizeEvent(event)
-
-
-class XYSeriesWidget(QChartView):
-    def __init__(
-        self,
-        x_values: Iterable[float],
-        y_values: Iterable[float],
-        line_color: QColor = BLUE,
-    ):
-        super().__init__()
-
-        self.plot = QChart()
-        self.plot.legend().setVisible(False)
-        self.plot.setBackgroundRoundness(0)
-        self.plot.setMargins(QMargins(0, 0, 0, 0))
-
-        self.time_series = QSplineSeries()
-        self.plot.addSeries(self.time_series)
-        pen = self.time_series.pen()
-        pen.setWidth(4)
-        pen.setColor(line_color)
-        self.time_series.setPen(pen)
-        self._instantiate_series(x_values, y_values)
-
-        self.x_axis = QValueAxis()
-        self.x_axis.setLabelFormat("%i")
-        self.plot.addAxis(self.x_axis, Qt.AlignBottom)
-        self.time_series.attachAxis(self.x_axis)
-
-        self.y_axis = QValueAxis()
-        self.y_axis.setLabelFormat("%i")
-        self.plot.addAxis(self.y_axis, Qt.AlignLeft)
-        self.time_series.attachAxis(self.y_axis)
-
-        self.setChart(self.plot)
-
-    def _instantiate_series(self, x_values: Iterable[float], y_values: Iterable[float]):
-        for x, y in zip(x_values, y_values):
-            self.time_series.append(x, y)
-
-    def update_series(self, x_values: Iterable[float], y_values: Iterable[float]):
-        for i, (x, y) in enumerate(zip(x_values, y_values)):
-            self.time_series.replace(i, x, y)
+import resources    # noqa
 
 
 class ViewSignals(QObject):
     """Cannot be defined on View directly since Signal needs to be defined on
     object that inherits from QObject"""
-
     annotation = Signal(tuple)
     start_recording = Signal(str)
 
 
 class View(QMainWindow):
-    def __init__(self, model: Model):
+
+    def __init__(self, model):
         super().__init__()
 
-        self.setWindowTitle(f"OpenHRV ({version})")
+        self.setWindowTitle("OpenHRV")
         self.setWindowIcon(QIcon(":/logo.png"))
 
         self.model = model
-        self.model.ibis_buffer_update.connect(self.plot_ibis)
-        self.model.hrv_update.connect(self.plot_hrv)
-        self.model.addresses_update.connect(self.list_addresses)
-        self.model.pacer_rate_update.connect(self.update_pacer_label)
-        self.model.hrv_target_update.connect(self.update_hrv_target)
-
         self.signals = ViewSignals()
 
-        self.pacer = Pacer()
-        self.pacer_timer = QTimer()
-        self.pacer_timer.setInterval(int(1 / 8 * 1000))  # redraw pacer at 8Hz
-        self.pacer_timer.timeout.connect(self.plot_pacer_disk)
-
         self.scanner = SensorScanner()
-        self.scanner.sensor_update.connect(self.model.update_sensors)
+        self.scanner.sensor_update.connect(self.model.set_sensors)
         self.scanner.status_update.connect(self.show_status)
 
         self.sensor = SensorClient()
-        self.sensor.ibi_update.connect(self.model.update_ibis_buffer)
+        self.sensor.ibi_update.connect(self.model.set_ibis_buffer)
         self.sensor.status_update.connect(self.show_status)
 
         self.logger = Logger()
-        self.logger.recording_status.connect(self.show_recording_status)
-        self.logger.status_update.connect(self.show_status)
         self.logger_thread = QThread()
-        self.logger_thread.finished.connect(self.logger.save_recording)
-        self.signals.start_recording.connect(self.logger.start_recording)
         self.logger.moveToThread(self.logger_thread)
-
         self.model.ibis_buffer_update.connect(self.logger.write_to_file)
+        self.model.lfhf_update.connect(self.logger.write_to_file)
         self.model.addresses_update.connect(self.logger.write_to_file)
         self.model.pacer_rate_update.connect(self.logger.write_to_file)
         self.model.hrv_target_update.connect(self.logger.write_to_file)
-        self.model.hrv_update.connect(self.logger.write_to_file)
+        # self.model.biofeedback_update.connect(self.logger.write_to_file)
         self.signals.annotation.connect(self.logger.write_to_file)
+        self.logger_thread.finished.connect(self.logger.save_recording)
+        self.signals.start_recording.connect(self.logger.start_recording)
+        self.logger.recording_status.connect(self.show_recording_status)
+        self.logger.status_update.connect(self.show_status)
 
-        self.ibis_widget = XYSeriesWidget(
-            self.model.ibis_seconds, self.model.ibis_buffer
-        )
-        self.ibis_widget.x_axis.setTitleText("Seconds")
-        # The time series displays only the samples within the last
-        # IBI_HISTORY_DURATION seconds,
-        # even though there are more samples in self.model.ibis_seconds.
-        self.ibis_widget.x_axis.setRange(-IBI_HISTORY_DURATION, 0.0)
-        self.ibis_widget.x_axis.setTickCount(7)
-        self.ibis_widget.x_axis.setTickInterval(10.0)
-        self.ibis_widget.y_axis.setTitleText("Inter-Beat-Interval (msec)")
-        self.ibis_widget.y_axis.setRange(MIN_PLOT_IBI, MAX_PLOT_IBI)
+        self.ibis_plot = pg.PlotWidget()
+        self.ibis_plot.setBackground("w")
+        self.ibis_plot.setLabel("left", "Inter-Beat-Interval (msec)",
+                                **{"font-size": "20px"})
+        self.ibis_plot.setLabel("bottom", "Seconds", **{"font-size": "20px"})
+        self.ibis_plot.showGrid(y=True)
+        self.ibis_plot.setYRange(300, 1500, padding=0)
+        self.ibis_plot.setMouseEnabled(x=False, y=False)
 
-        self.hrv_widget = XYSeriesWidget(
-            self.model.hrv_seconds, self.model.hrv_buffer, WHITE
-        )
-        self.hrv_widget.x_axis.setTitleText("Seconds")
-        # The time series displays only the samples within the last
-        # HRV_HISTORY_DURATION seconds,
-        # even though there are more samples in self.model.hrv_seconds.
-        self.hrv_widget.x_axis.setRange(-HRV_HISTORY_DURATION, 0)
-        self.hrv_widget.y_axis.setTitleText("HRV (msec)")
-        self.hrv_widget.y_axis.setRange(0, self.model.hrv_target)
-        colorgrad = QLinearGradient(0, 0, 0, 1)  # horizontal gradient
-        colorgrad.setCoordinateMode(QGradient.ObjectMode)
-        colorgrad.setColorAt(0, GREEN)
-        colorgrad.setColorAt(0.6, YELLOW)
-        colorgrad.setColorAt(1, RED)
-        brush = QBrush(colorgrad)
-        self.hrv_widget.plot.setPlotAreaBackgroundBrush(brush)
-        self.hrv_widget.plot.setPlotAreaBackgroundVisible(True)
+        self.ibis_signal = pg.PlotCurveItem()
+        pen = pg.mkPen(color=(0, 191, 255), width=7.5)
+        self.ibis_signal.setPen(pen)
+        self.ibis_signal.setData(self.model.ibis_seconds,
+                                 self.model.ibis_buffer)
+        self.ibis_plot.addItem(self.ibis_signal)
 
-        self.pacer_widget = PacerWidget(*self.pacer.update(self.model.breathing_rate))
 
-        self.pacer_label = QLabel()
+
+        self.lfhf_plot = pg.PlotWidget()
+        self.lfhf_plot.setBackground("w")
+        self.lfhf_plot.setLabel("left", "LF/HF",
+                                **{"font-size": "25px"})
+        self.lfhf_plot.setLabel("bottom", "Seconds", **{"font-size": "20px"})
+        self.lfhf_plot.showGrid(y=True)
+        self.lfhf_plot.setYRange(0, 25, padding=0)
+        self.lfhf_plot.setMouseEnabled(x=False, y=False)
+
+        #self.lfhf_signal = pg.PlotCurveItem()
+        self.lfhf_signal = pg.ScatterPlotItem()
+        pen = pg.mkPen(color="g", width=7.5)
+        self.lfhf_signal.setPen(pen)
+        # self.mean_hrv_signal.setData(self.model.mean_hrv_seconds, self.model.mean_hrv_buffer)
+        self.lfhf_signal.setData(self.model.mean_hrv_seconds, self.model.lfhf_values_buffer)
+        self.lfhf_plot.addItem(self.lfhf_signal)
+
+  #      self.pacer_plot = pg.PlotWidget()
+  #      self.pacer_plot.setBackground("w")
+  #      self.pacer_plot.setAspectLocked(lock=True, ratio=1)
+ #       self.pacer_plot.setMouseEnabled(x=False, y=False)
+ #       self.pacer_plot.disableAutoRange()
+ #       self.pacer_plot.setXRange(-1, 1, padding=0)
+ #       self.pacer_plot.setYRange(-1, 1, padding=0)
+ #       self.pacer_plot.hideAxis("left")
+ #       self.pacer_plot.hideAxis("bottom")
+
+ #       self.pacer_disc = pg.PlotCurveItem()
+ #       brush = pg.mkBrush(color=(135, 206, 250))
+ #       self.pacer_disc.setBrush(brush)
+ #       self.pacer_disc.setFillLevel(1)
+ #       self.pacer_plot.addItem(self.pacer_disc)
+        self.lastTime = datetime.datetime.now()
+        
         self.pacer_rate = QSlider(Qt.Horizontal)
-        self.pacer_rate.setTickPosition(QSlider.TicksBelow)
         self.pacer_rate.setTracking(False)
-        self.pacer_rate.setRange(
-            breathing_rate_to_tick(MIN_BREATHING_RATE),
-            breathing_rate_to_tick(MAX_BREATHING_RATE),
-        )
-        self.pacer_rate.valueChanged.connect(self.model.update_breathing_rate)
-        self.pacer_rate.setValue(breathing_rate_to_tick(MAX_BREATHING_RATE))
+        self.pacer_rate.setRange(0, 60)    # transformed to bpm [4, 7], step .5 by model
 
+        self.pacer_rate.valueChanged.connect(self.model.set_baseline_lfhf)
+        self.pacer_rate.setSliderPosition(21)    # corresponds to 2.1
+        self.pacer_label = QLabel(f"Baseline LF/HF: {self.model.baseline_lfhf}") 
+        self.lfhf_label = QLabel("N/A")
+        #self.lfhf_label.setStyleSheet('font-size: 24pt;')
+        self.lfhf_label.setStyleSheet('font-size: 24pt; color: green')
+        
         self.pacer_toggle = QCheckBox("Show pacer", self)
-        self.pacer_toggle.setChecked(True)
+        self.pacer_toggle.setChecked(False)
         self.pacer_toggle.stateChanged.connect(self.toggle_pacer)
 
-        self.hrv_target_label = QLabel(f"Target: {self.model.hrv_target}")
+        self.hrv_target_label = QLabel(f"LF/HF Window: {self.model.hrv_target}")
 
         self.hrv_target = QSlider(Qt.Horizontal)
-        self.hrv_target.setRange(MIN_HRV_TARGET, MAX_HRV_TARGET)
+        self.hrv_target.setRange(30, 600)
         self.hrv_target.setSingleStep(10)
-        self.hrv_target.valueChanged.connect(self.model.update_hrv_target)
-        self.hrv_target.setSliderPosition(self.model.hrv_target)
+        self.hrv_target.valueChanged.connect(self.model.set_baseline_lfhf)
+        self.hrv_target.setSliderPosition(self.model.baseline_lfhf)
+        # self.mean_hrv_plot.setYRange(0, self.model.hrv_target, padding=0)
 
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.scanner.scan)
@@ -272,7 +149,7 @@ class View(QMainWindow):
         self.save_recording_button.clicked.connect(self.logger.save_recording)
 
         self.annotation = QComboBox()
-        self.annotation.setEditable(True)
+        self.annotation.setEditable(True)    # user can add custom annotations (edit + enter)
         self.annotation.setDuplicatesEnabled(False)
         self.annotation_button = QPushButton("Annotate")
         self.annotation_button.clicked.connect(self.emit_annotation)
@@ -288,11 +165,11 @@ class View(QMainWindow):
         self.vlayout0 = QVBoxLayout(self.central_widget)
 
         self.hlayout0 = QHBoxLayout()
-        self.hlayout0.addWidget(self.ibis_widget)
-        self.hlayout0.addWidget(self.pacer_widget)
-        self.vlayout0.addLayout(self.hlayout0, stretch=50)
+        self.hlayout0.addWidget(self.ibis_plot, stretch=80)
+#        self.hlayout0.addWidget(self.pacer_plot, stretch=20)
+        self.vlayout0.addLayout(self.hlayout0)
 
-        self.vlayout0.addWidget(self.hrv_widget, stretch=50)
+        self.vlayout0.addWidget(self.lfhf_plot)
 
         self.hlayout1 = QHBoxLayout()
 
@@ -307,14 +184,17 @@ class View(QMainWindow):
 
         self.hrv_config = QFormLayout()
         self.hrv_config.addRow(self.hrv_target_label, self.hrv_target)
+        self.hrv_config.addRow(self.pacer_label, self.pacer_rate)
         self.hrv_panel = QGroupBox("HRV Settings")
         self.hrv_panel.setLayout(self.hrv_config)
         self.hlayout1.addWidget(self.hrv_panel, stretch=25)
 
+        
         self.pacer_config = QFormLayout()
-        self.pacer_config.addRow(self.pacer_label, self.pacer_rate)
-        self.pacer_config.addRow(self.pacer_toggle)
-        self.pacer_panel = QGroupBox("Breathing Pacer")
+#        self.pacer_config.addRow(self.pacer_label, self.pacer_rate)
+        self.pacer_config.addRow(self.lfhf_label)
+#        self.pacer_config.addRow(self.pacer_toggle)
+        self.pacer_panel = QGroupBox("30 Second LF/HF:")
         self.pacer_panel.setLayout(self.pacer_config)
         self.hlayout1.addWidget(self.pacer_panel, stretch=25)
 
@@ -322,8 +202,7 @@ class View(QMainWindow):
         self.recording_config.addWidget(self.start_recording_button, 0, 0)
         self.recording_config.addWidget(self.save_recording_button, 0, 1)
         self.recording_config.addWidget(self.recording_statusbar, 0, 2)
-        # row, column, rowspan, columnspan
-        self.recording_config.addWidget(self.annotation, 1, 0, 1, 2)
+        self.recording_config.addWidget(self.annotation, 1, 0, 1, 2)    # row, column, rowspan, columnspan
         self.recording_config.addWidget(self.annotation_button, 1, 2)
         self.recording_panel = QGroupBox("Recording")
         self.recording_panel.setLayout(self.recording_config)
@@ -331,11 +210,26 @@ class View(QMainWindow):
 
         self.vlayout0.addLayout(self.hlayout1)
 
-        self.logger_thread.start()
-        self.pacer_timer.start()
+        self.model.ibis_buffer_update.connect(self.plot_ibis)
+#        self.model.mean_hrv_update.connect(self.plot_hrv)
+        self.model.lfhf_update.connect(self.plot_lfhf)
+        self.model.addresses_update.connect(self.list_addresses)
+#        self.model.pacer_disk_update.connect(self.plot_pacer_disk)
+        self.model.pacer_rate_update.connect(self.update_pacer_label)
+        self.model.hrv_target_update.connect(self.update_hrv_target)
+        self.model.baseline_lfhf_update.connect(self.update_baseline_lfhf)
 
-    def closeEvent(self, _):
-        """Shut down all threads."""
+#        ts = datetime.datetime.now()
+#        print(self.lastTime)
+#        print(ts)
+#        ivl = ts - self.lastTime
+#        print(ivl)
+#        print(ivl > datetime.timedelta(seconds=30))
+        
+        self.logger_thread.start()
+
+    def closeEvent(self, event):
+        """Properly shut down all threads."""
         print("Closing threads...")
 
         self.sensor.disconnect_client()
@@ -344,16 +238,12 @@ class View(QMainWindow):
         self.logger_thread.wait()
 
     def get_filepath(self):
-        current_time: str = datetime.now().strftime("%Y-%m-%d-%H-%M")
-        default_file_name: str = f"OpenHRV_{current_time}.csv"
-        # native file dialog not reliable on Windows (most likely COM issues)
-        file_path: str = QFileDialog.getSaveFileName(
-            None,
-            "Create file",
-            default_file_name,
-            options=QFileDialog.DontUseNativeDialog,
-        )[0]
-        if not file_path:  # user cancelled or closed file dialog
+        current_time = datetime.now().strftime("%Y-%m-%d-%H-%M")
+        default_file_name = f"OpenHRV_{current_time}.csv"
+        file_path = QFileDialog.getSaveFileName(None, "Create file",
+                                                default_file_name,
+                                                options=QFileDialog.DontUseNativeDialog)[0]    # native file dialog not reliable on Windows (most likely COM issues)
+        if not file_path:    # user cancelled or closed file dialog
             return
         if not valid_path(file_path):
             self.show_status("File path is invalid or exists already.")
@@ -363,54 +253,79 @@ class View(QMainWindow):
     def connect_sensor(self):
         if not self.address_menu.currentText():
             return
-        # discard device name
-        address: str = self.address_menu.currentText().split(",")[1].strip()
+        address = self.address_menu.currentText().split(",")[1].strip()    # discard device name
         if not valid_address(address):
             print(f"Invalid sensor address: {address}.")
             return
-        sensor: list[QBluetoothDeviceInfo] = [
-            s for s in self.model.sensors if get_sensor_address(s) == address
-        ]
+        sensor = [s for s in self.model.sensors if s.address().toString() == address]
         self.sensor.connect_client(*sensor)
 
     def disconnect_sensor(self):
         self.sensor.disconnect_client()
 
-    def plot_ibis(self, ibis: NamedSignal):
-        self.ibis_widget.update_series(*ibis.value)
+    def plot_ibis(self, ibis):
+        self.ibis_signal.setData(self.model.mean_hrv_seconds, ibis[1])
 
-    def plot_hrv(self, hrv: NamedSignal):
-        self.hrv_widget.update_series(*hrv.value)
+ #   def plot_hrv(self, hrv):
+ #       self.mean_hrv_signal.setData(self.model.mean_hrv_seconds, hrv[1])
 
-    def list_addresses(self, addresses: NamedSignal):
+    def plot_lfhf(self, lfhf):
+ #       ts = datetime.datetime.now()
+ #       print(self.lastTime)
+ #       print(ts)
+ #       ivl = ts - self.lastTime
+ #       print(ivl)
+ #       print(ivl > datetime.timedelta(seconds=30))
+        
+        
+        self.lfhf_signal.setData(self.model.mean_hrv_seconds, lfhf[1])
+        lfhf_array = lfhf[1]
+        ts = datetime.datetime.now()
+        #print(self.lastTime)
+        #print(ts)
+        intervl = ts - self.lastTime
+        #print("Interval: ",intervl)
+
+
+        if( intervl >= datetime.timedelta(seconds=3)):
+            self.lastTime = datetime.datetime.now()  
+            if (lfhf_array[-1] >= (2.0 * self.model.baseline_lfhf)):
+                self.lfhf_label.setStyleSheet('font-size:28pt; color: red; background-color: black')
+            elif (lfhf_array[-1] >= (1.5 * self.model.baseline_lfhf)):
+                self.lfhf_label.setStyleSheet('font-size:28pt; color: yellow; background-color: gray')    
+            else:
+                self.lfhf_label.setStyleSheet('font-size:28pt; color: green; background-color: white')
+            self.lfhf_label.setText(str(round(lfhf_array[-1],2)))
+    
+
+    def list_addresses(self, addresses):
         self.address_menu.clear()
-        self.address_menu.addItems(addresses.value)
+        self.address_menu.addItems(addresses[1])
 
-    def plot_pacer_disk(self):
-        coordinates = self.pacer.update(self.model.breathing_rate)
-        self.pacer_widget.update_series(*coordinates)
+ #   def plot_pacer_disk(self, coordinates):
+ #       self.pacer_disc.setData(*coordinates[1])
 
-    def update_pacer_label(self, rate: NamedSignal):
-        self.pacer_label.setText(f"Rate: {rate.value}")
+    def update_pacer_label(self, rate):
+        self.pacer_label.setText(f"Rate: {rate[1]}")
 
-    def update_hrv_target(self, target: NamedSignal):
-        self.hrv_widget.y_axis.setRange(0, target.value)
-        self.hrv_target_label.setText(f"Target: {target.value}")
+    def update_hrv_target(self, target):
+        #self.mean_hrv_plot.setYRange(0, target[1], padding=0)
+        self.hrv_target_label.setText(f"LF/HF Window: {target[1]}")
+
+    def update_baseline_lfhf(self, target):
+       self.pacer_label.setText(f"Baseline LF/HF: {target[1]}")
 
     def toggle_pacer(self):
-        visible = self.pacer_widget.isVisible()
-        self.pacer_widget.setVisible(not visible)
+        visible = self.pacer_plot.isVisible()
+        self.pacer_plot.setVisible(not visible)
 
-    def show_recording_status(self, status: int):
-        """Indicate busy state if `status` is 0."""
-        self.recording_statusbar.setRange(0, status)
+    def show_recording_status(self, status):
+        self.recording_statusbar.setRange(0, status)    # indicates busy state if progress is 0
 
-    def show_status(self, status: str, print_to_terminal=True):
+    def show_status(self, status, print_to_terminal=True):
         self.statusbar.showMessage(status, 0)
         if print_to_terminal:
             print(status)
 
     def emit_annotation(self):
-        self.signals.annotation.emit(
-            NamedSignal("Annotation", self.annotation.currentText())
-        )
+        self.signals.annotation.emit(("Annotation", self.annotation.currentText()))

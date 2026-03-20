@@ -1,35 +1,39 @@
-import math
+import numpy as np
 import time
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QTimer, QObject
 
 
 class Pacer(QObject):
-    def __init__(self):
+
+    def __init__(self, model):
         super().__init__()
 
-        n_samples: int = 40
-        increment: float = 2 * math.pi / n_samples
-        theta: list[float] = [i * increment for i in range(n_samples + 1)]
-        self.cos_theta: list[float] = list(map(math.cos, theta))
-        self.sin_theta: list[float] = list(map(math.sin, theta))
+        self.model = model
+        self.timer = QTimer()
 
-    def breathing_pattern(self, breathing_rate: float, time: float) -> float:
-        """Returns radius of pacer disk.
+        self.refresh_freq = 8
+        self.refresh_period = 1 / self.refresh_freq
+        self.theta = np.linspace(0, 2 * np.pi, 75)
+        self.cos_theta = np.cos(self.theta)
+        self.sin_theta = np.sin(self.theta)
 
-        Radius is modulated according to sinusoidal breathing pattern
-        and scaled between 0 and 1.
-        """
-        return 0.5 + 0.5 * math.sin(2 * math.pi * breathing_rate / 60 * time)
+    def breathing_pattern(self, t):
+        return 0.5 + 0.5 * np.sin(2 * np.pi * self.model.breathing_rate / 60 * t)    # scale such that amplitude fluctuates in [0, 1]
 
-    def update(self, breathing_rate: float) -> tuple[list[float], list[float]]:
+    def start(self):
+        self.timer.timeout.connect(self.update_pacer)
+        self.timer.setInterval(self.refresh_period * 1000)
+        self.timer.start()
+
+    def update_pacer(self):
         """Update radius of pacer disc.
 
         Make current disk radius a function of real time (i.e., don't
         precompute radii with fixed time interval) in order to compensate for
         jitter or delay in QTimer calls.
         """
-        radius = self.breathing_pattern(breathing_rate, time.time())
-        x: list[float] = [i * radius for i in self.cos_theta]
-        y: list[float] = [i * radius for i in self.sin_theta]
-
-        return (x, y)
+        t = time.time()
+        radius = self.breathing_pattern(t)
+        x = radius * self.cos_theta
+        y = radius * self.sin_theta
+        self.model.pacer_coordinates = (x, y)
