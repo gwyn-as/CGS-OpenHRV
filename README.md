@@ -1,9 +1,12 @@
 <img src="https://github.com/JanCBrammer/OpenHRV/raw/main/docs/logo.png" width="125" height="125" />
 
-# OpenHRV
+# CGS-OpenHRV
 
-A desktop application for heart rate variability (HRV) biofeedback training with
-Polar chest straps (H7, H9, H10).
+Cognitive Guidance System
+# TODO Add CGS specific documentation here
+
+Forked from OpenHRV: A desktop application for heart rate variability (HRV) biofeedback 
+training with Polar chest straps (H7, H9, H10).
 
 ## Installation
 
